@@ -9,14 +9,37 @@ import ChorographPluginSDK
 actor DotNetTestRunner {
 
     static let defaultDotNetPath: String = {
-        let arm = "/usr/local/share/dotnet/dotnet"
-        let x64 = "/usr/local/bin/dotnet"
-        let brew = "/opt/homebrew/bin/dotnet"
-        for path in [arm, brew, x64] {
+        let candidates = [
+            "/usr/local/share/dotnet/dotnet",
+            "/opt/homebrew/bin/dotnet",
+            "/usr/local/bin/dotnet",
+        ]
+        for path in candidates {
             if FileManager.default.isExecutableFile(atPath: path) { return path }
         }
-        return arm
+        // Fall back to asking the shell — covers custom installs and nix-style envs.
+        if let found = runWhich("dotnet") { return found }
+        return candidates[0]
     }()
+
+    private static func runWhich(_ tool: String) -> String? {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+        p.arguments = [tool]
+        let pipe = Pipe()
+        p.standardOutput = pipe
+        p.standardError = Pipe()
+        do {
+            try p.run()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            p.waitUntilExit()
+            let path = String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return (path?.isEmpty == false) ? path : nil
+        } catch {
+            return nil
+        }
+    }
 
     private var activeProcess: Process?
 

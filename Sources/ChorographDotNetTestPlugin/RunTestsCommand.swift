@@ -25,15 +25,25 @@ struct RunTestsCommand: PluginCommand {
         let dotnetPath = UserDefaults.standard.string(forKey: "dotnetBinaryPath")
             ?? DotNetTestRunner.defaultDotNetPath
 
-        guard FileManager.default.isExecutableFile(atPath: dotnetPath) else {
-            throw DotNetTestError.binaryNotFound(dotnetPath)
-        }
-
         // Capture context for use inside the detached task.
         let ctx = context
 
         // Fire-and-forget: results stream in asynchronously via context.emitEvent.
         Task.detached(priority: .userInitiated) {
+            // Verify binary before spawning.
+            guard FileManager.default.isExecutableFile(atPath: dotnetPath) else {
+                Task { @MainActor in
+                    ctx.emitEvent(ErrorEvent(
+                        "dotnet not found at '\(dotnetPath)'. Set the correct path in Settings (⌘,)."
+                    ))
+                }
+                return
+            }
+
+            Task { @MainActor in
+                ctx.emitEvent(InfoEvent("Running dotnet test in \(projectDir)…"))
+            }
+
             let exitCode = await runner.run(
                 dotnetPath: dotnetPath,
                 projectDirectory: projectDir,
@@ -42,7 +52,6 @@ struct RunTestsCommand: PluginCommand {
                         for: result.fullName,
                         projectDirectory: projectDir
                     )
-                    // Warm the node before the pass/fail pulse lands.
                     Task { @MainActor in
                         ctx.emitEvent(RuntimeHeatEvent(path: filePath, intensity: 0.6))
                         ctx.emitEvent(RuntimeTestResultEvent(
@@ -55,25 +64,15 @@ struct RunTestsCommand: PluginCommand {
                 onLine: { _ in }
             )
 
-            if exitCode != 0 && exitCode != 1 {
-                // Exit code 1 = tests ran but some failed (normal). Anything else is an error.
-                Task { @MainActor in
-                    ctx.emitEvent(ErrorEvent("dotnet test exited with code \(exitCode)"))
+            Task { @MainActor in
+                if exitCode == 0 {
+                    ctx.emitEvent(InfoEvent("dotnet test finished — all tests passed."))
+                } else if exitCode == 1 {
+                    ctx.emitEvent(InfoEvent("dotnet test finished — some tests failed."))
+                } else {
+                    ctx.emitEvent(ErrorEvent("dotnet test exited with code \(exitCode)."))
                 }
             }
-        }
-    }
-}
-
-// MARK: - DotNetTestError
-
-enum DotNetTestError: LocalizedError {
-    case binaryNotFound(String)
-
-    var errorDescription: String? {
-        switch self {
-        case .binaryNotFound(let path):
-            return "dotnet binary not found at '\(path)'. Check the path in dotnet test Settings."
         }
     }
 }
