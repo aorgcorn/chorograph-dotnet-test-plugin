@@ -10,7 +10,7 @@ public final class DotNetTestPlugin: ChorographPlugin, @unchecked Sendable {
         id: "com.chorograph.plugin.dotnet-test",
         displayName: "dotnet test",
         description: "Runs dotnet test and pulses test file nodes on the spatial map with pass/fail results.",
-        version: "1.0.0",
+        version: "1.0.1",
         capabilities: [.commandBarEntry, .settingsPanel, .customEvents]
     )
 
